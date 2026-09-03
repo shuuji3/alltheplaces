@@ -49,6 +49,7 @@ class JapanPostJPSpider(Spider):
             cb_kwargs={
                 "lat": lat,
                 "lon": lon,
+                "radius": radius,
                 "offset": offset,
                 "count": count,
                 "tempo_count": tempo_count,
@@ -63,7 +64,7 @@ class JapanPostJPSpider(Spider):
         for city in city_locations("JP", 200000):
             yield self.make_request(city["latitude"], city["longitude"], 5500)
 
-    def parse(self, response, lat, lon, offset, count=900, tempo_count=0, post_count=0):
+    def parse(self, response, lat, lon, radius, offset, count=900, tempo_count=0, post_count=0):
         # response is an EUC-encoded JS file that looks like
         #   ZdcEmapHttpResult[1] = '...';
         # where the string body is a TSV
@@ -89,7 +90,9 @@ class JapanPostJPSpider(Spider):
             )
 
         if offset + rec_count < hit_count:
-            yield self.make_request(lat, lon, offset + rec_count, tempo_count=tempo_total, post_count=post_total)
+            yield self.make_request(
+                lat, lon, radius, offset + rec_count, tempo_count=tempo_total, post_count=post_total
+            )
 
         for row in rows:
             if row[0] == "POST":
