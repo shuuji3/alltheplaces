@@ -3,7 +3,7 @@ from io import StringIO
 from urllib.parse import urlencode
 
 from chompjs import parse_js_object
-from scrapy import FormRequest, Spider
+from scrapy import Request, Spider
 
 from locations.categories import Categories, apply_category
 from locations.geo import city_locations, country_iseadgg_centroids
@@ -42,14 +42,10 @@ class JapanPostJPSpider(Spider):
             "rad": radius,
             "hour": 1,
         }
-        target = f"http://127.0.0.1/cgi/nkyoten.cgi?{urlencode(params)}"
-        return FormRequest(
-            f"https://map.japanpost.jp/p/{MAP_ID}/zdcemaphttp.cgi?zdccnt=1&enc=EUC",
-            formdata={"target": target},
-            headers={
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": "https://map.japanpost.jp/p/search/nmap.htm",
-            },
+        target = urlencode({"target": f"http://127.0.0.1/cgi/nkyoten.cgi?{urlencode(params)}"})
+        url = f"https://map.japanpost.jp/p/{MAP_ID}/zdcemaphttp.cgi?{target}&zdccnt=1&enc=EUC"
+        return Request(
+            url,
             cb_kwargs={
                 "lat": lat,
                 "lon": lon,
