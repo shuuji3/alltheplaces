@@ -1,8 +1,9 @@
 import csv
 from io import StringIO
+from urllib.parse import urlencode
 
 from chompjs import parse_js_object
-from scrapy import Request, Spider
+from scrapy import FormRequest, Spider
 
 from locations.categories import Categories, apply_category
 from locations.geo import city_locations, country_iseadgg_centroids
@@ -16,9 +17,31 @@ MAP_ID = "search"
 class JapanPostJPSpider(Spider):
     name = "japan_post_jp"
 
-    def make_request(self, lat, lon, distance, offset=1, count=900):
-        return Request(
-            f"https://map.japanpost.jp/p/{MAP_ID}/zdcemaphttp.cgi?target=http%3A%2F%2F127.0.0.1%2Fcgi%2Fnkyoten.cgi%3F%26cid%3D{MAP_ID}%26pos%3D{offset}%26lat%3D{lat}%26lon%3D{lon}%26knsu%3D{MAX_ITEMS}%26cnt%3D{count}%26hour%3D1%26rad%3D{distance}&zdccnt=1",
+    def make_request(self, lat, lon, radius, offset=1, count=900):
+        params = {
+            "cid": MAP_ID,
+            "postcid": "searchPO",
+            "search_tempo": "1",
+            "search_post": "1",
+            "opt": "search",
+            "pos": offset,
+            "cnt": count,
+            "enc": "EUC",
+            "lat": lat,
+            "lon": lon,
+            "knsu": MAX_ITEMS,
+            "postknsu": MAX_ITEMS,
+            "rad": radius,
+            "hour": 1,
+        }
+        target = f"http://127.0.0.1/cgi/nkyoten.cgi?{urlencode(params)}"
+        return FormRequest(
+            f"https://map.japanpost.jp/p/{MAP_ID}/zdcemaphttp.cgi?zdccnt=1&enc=EUC",
+            formdata={"target": target},
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://map.japanpost.jp/p/search/nmap.htm",
+            },
             cb_kwargs={"lat": lat, "lon": lon, "offset": offset},
         )
 
@@ -47,20 +70,45 @@ class JapanPostJPSpider(Spider):
         if rec_count >= hit_count:
             yield self.make_request(lat, lon, offset + rec_count)
         for row in reader:
+            if row[0] == "POST":
+                item = Feature()
+                item["ref"] = row[1]
+                item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{row[1]}/?post=1"
+                item["lat"] = row[2]
+                item["lon"] = row[3]
+                item["postcode"] = row[21]
+                item["addr_full"] = row[7]
+                apply_category(Categories.POST_BOX, item)
+                item["name"] = "ポスト"
+                yield item
+                continue
+
+            if row[4] == "99":
+                continue
+
             item = Feature()
-            item["ref"] = row[0]
-            item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{row[0]}/"
-            item["lat"] = row[1]
-            item["lon"] = row[2]
-            item["postcode"] = row[12]
-            item["addr_full"] = row[13]
-            if "郵便局" in row[6]:
+            item["ref"] = row[1]
+            item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{row[1]}/"
+            item["lat"] = row[2]
+            item["lon"] = row[3]
+            item["postcode"] = row[13]
+            item["addr_full"] = row[14]
+            # col [4] is an icon_id (marker image) that selects the category:
+            #   01, 02          = post office
+            #   03,04,06,07,08  = ATM
+            #   05              = Japan Post Insurance
+            #   99              = search-center pin, not a real location
+            if row[4] in ("01", "02"):
                 apply_category(Categories.POST_OFFICE, item)
                 item.update({"brand": "日本郵便", "brand_wikidata": "Q11509260"})
-                item["name"] = row[6]
+                item["name"] = row[7]
+            elif row[4] == "05":
+                apply_category(Categories.OFFICE_INSURANCE, item)
+                item.update({"brand": "かんぽ生命保険", "brand_wikidata": "Q6157781"})
+                item["name"] = row[7]
             else:
                 apply_category(Categories.ATM, item)
                 item.update({"brand": "ゆうちょ銀行", "brand_wikidata": "Q907103"})
-                item["branch"] = row[6].removesuffix("出張所")
+                item["branch"] = row[7].removesuffix("出張所")
 
             yield item
