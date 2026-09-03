@@ -81,13 +81,12 @@ class JapanPostJPSpider(Spider):
         tempo_total = tempo_count + sum(1 for r in rows if r[0] == "TEMPO")
         post_total = post_count + sum(1 for r in rows if r[0] == "POST")
 
+        page = (offset - 1) // count + 1
+        self.logger.info(
+            f"Query (lat={lat}, lon={lon}, page={page}, offset={offset}, rec={rec_count}, hit={hit_count}, tempo={tempo_total}, post={post_total})"
+        )
         if tempo_total >= MAX_ITEMS or post_total >= MAX_ITEMS:
-            f"Maximum number of items returned in one query, consider lowering the radius to avoid locations (lat={lat}, lon={lon}, tempo={tempo_total}, post={post_total})"
-        else:
-            page = (offset - 1) // count + 1
-            self.logger.info(
-                f"Query OK (lat={lat}, lon={lon}, page={page}, offset={offset}, rec={rec_count}, hit={hit_count}, tempo={tempo_total}, post={post_total})"
-            )
+            self.logger.warning("Maximum number of items returned in one query, consider lowering the radius")
 
         if offset + rec_count < hit_count:
             yield self.make_request(
