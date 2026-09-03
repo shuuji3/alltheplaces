@@ -9,7 +9,8 @@ from locations.categories import Categories, apply_category
 from locations.geo import city_locations, country_iseadgg_centroids
 from locations.items import Feature
 
-MAX_ITEMS = 1640  # determined experimentally
+# determined experimentally. per-type cap (TEMPO/POST). a type reaching this is truncated
+MAX_ITEMS = 1640
 RADIUS_KM = 24
 MAP_ID = "search"
 
@@ -21,16 +22,23 @@ class JapanPostJPSpider(Spider):
         params = {
             "cid": MAP_ID,
             "postcid": "searchPO",
+            # include TEMPO (post offices + ATMs + kanpo insurance)
             "search_tempo": "1",
+            # include POST (postboxes)
             "search_post": "1",
             "opt": "search",
+            # starting row (1-based). increased by rec_count to paginate
             "pos": offset,
+            # page size (rows per response). does not limit the total
             "cnt": count,
             "enc": "EUC",
             "lat": lat,
             "lon": lon,
+            # cap on TEMPO rows for this whole query
             "knsu": MAX_ITEMS,
+            # cap on POST rows for this whole query
             "postknsu": MAX_ITEMS,
+            # search radius in metres
             "rad": radius,
             "hour": 1,
         }
@@ -42,7 +50,13 @@ class JapanPostJPSpider(Spider):
                 "X-Requested-With": "XMLHttpRequest",
                 "Referer": "https://map.japanpost.jp/p/search/nmap.htm",
             },
-            cb_kwargs={"lat": lat, "lon": lon, "offset": offset},
+            cb_kwargs={
+                "lat": lat,
+                "lon": lon,
+                "offset": offset,
+                "tempo_count": tempo_count,
+                "post_count": post_count,
+            },
         )
 
     async def start(self):
