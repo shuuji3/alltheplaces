@@ -101,45 +101,58 @@ class JapanPostJPSpider(Spider):
             )
 
         for row in rows:
-            if row[0] == "POST":
+            row_type = row[0]
+            ref = row[1]
+            lat = row[2]
+            lon = row[3]
+
+            if row_type == "POST":
+                postcode = row[21]
+                addr_full = row[7]
                 item = Feature()
-                item["ref"] = row[1]
-                item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{row[1]}/?post=1"
-                item["lat"] = row[2]
-                item["lon"] = row[3]
-                item["postcode"] = row[21]
-                item["addr_full"] = row[7]
+                item["ref"] = ref
+                # post detail page is not accessible without `?post=1`
+                item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{ref}/?post=1"
+                item["lat"] = lat
+                item["lon"] = lon
+                item["postcode"] = postcode
+                item["addr_full"] = addr_full
                 apply_category(Categories.POST_BOX, item)
                 item["name"] = "ポスト"
                 yield item
                 continue
 
-            if row[4] == "99":
-                continue
-
-            item = Feature()
-            item["ref"] = row[1]
-            item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{row[1]}/"
-            item["lat"] = row[2]
-            item["lon"] = row[3]
-            item["postcode"] = row[13]
-            item["addr_full"] = row[14]
-            # col [4] is an icon_id (marker image) that selects the category:
+            # col [icon] is an icon_id (marker image) that selects the category:
             #   01, 02          = post office
             #   03,04,06,07,08  = ATM
-            #   05              = Japan Post Insurance
+            #   05              = Japan Post kanpo Insurance
             #   99              = search-center pin, not a real location
-            if row[4] in ("01", "02"):
+            icon = row[4]
+            if icon == "99":
+                continue
+
+            name = row[7]
+            postcode = row[13]
+            addr_full = row[14]
+
+            item = Feature()
+            item["ref"] = ref
+            item["website"] = f"https://map.japanpost.jp/p/{MAP_ID}/dtl/{ref}/"
+            item["lat"] = lat
+            item["lon"] = lon
+            item["postcode"] = postcode
+            item["addr_full"] = addr_full
+            if icon in ("01", "02"):
                 apply_category(Categories.POST_OFFICE, item)
                 item.update({"brand": "日本郵便", "brand_wikidata": "Q11509260"})
-                item["name"] = row[7]
-            elif row[4] == "05":
+                item["name"] = name
+            elif icon == "05":
                 apply_category(Categories.OFFICE_INSURANCE, item)
                 item.update({"brand": "かんぽ生命保険", "brand_wikidata": "Q6157781"})
-                item["name"] = row[7]
+                item["name"] = name
             else:
                 apply_category(Categories.ATM, item)
                 item.update({"brand": "ゆうちょ銀行", "brand_wikidata": "Q907103"})
-                item["branch"] = row[7].removesuffix("出張所")
+                item["branch"] = name.removesuffix("出張所")
 
             yield item
