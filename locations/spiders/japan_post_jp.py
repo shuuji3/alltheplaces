@@ -13,6 +13,7 @@ from locations.items import Feature
 # determined experimentally. per-type cap (TEMPO/POST). a type reaching this is truncated
 MAX_ITEMS = 1640
 RADIUS_KM = 24
+MIN_RADIUS_M = 1000
 MAP_ID = "search"
 
 
@@ -58,6 +59,42 @@ class JapanPostJPSpider(Spider):
                 "source": source,
             },
         )
+
+    def _subdivide(self, lat, lon, radius, source):
+        # Replace a truncated circle (center lat/lon, radius m) with 4 smaller
+        # circles whose union covers the original. Only used for the city-5.5 pass
+        # and only ONE level: children keep source "city-5.5-sub-<quadrant>", which
+        # never matches the "city-5.5" trigger, so they are not subdivided again.
+        #
+        # source is always hyphen-delimited, e.g. grid-24, city-5.5, city-5.5-sub-NW,
+        # so it splits cleanly for later analysis.
+        #
+        # Covering math: the parent disk (radius R) sits inside its bounding square
+        # of side 2R. Put one child at each quadrant centre, i.e. offset by R/2 in
+        # latitude and R/2 in longitude. The farthest corner of a quadrant from its
+        # centre is the half-diagonal sqrt((R/2)^2+(R/2)^2) = R*sqrt(2)/2, so a child
+        # of that radius covers its whole quadrant exactly. The 4 quadrants tile the
+        # bounding square, therefore union(4 children) = bounding square, which fully
+        # contains the parent circle. No point is missed.
+        #
+        # metre offsets -> degrees: 1 deg latitude ~ 111320 m, and a degree of
+        # longitude shrinks by cos(lat), so the R/2 offset in each axis is:
+        #   dlat = (R/2) / 111320              (degrees of latitude)
+        #   dlon = (R/2) / (111320 * cos(lat)) (degrees of longitude)
+        # sub_radius = R*sqrt(2)/2             (child radius, still in metres)
+        if radius <= MIN_RADIUS_M:
+            self.logger.warning(f"cannot subdivide below {MIN_RADIUS_M}m at {lat},{lon}")
+            return
+        dlat = (radius / 2) / 111320.0
+        dlon = (radius / 2) / (111320.0 * math.cos(math.radians(lat)))
+        sub_radius = radius * math.sqrt(2) / 2
+        for quadrant, d1, d2 in (
+            ("NW", dlat, dlon),
+            ("NE", dlat, -dlon),
+            ("SW", -dlat, dlon),
+            ("SE", -dlat, -dlon),
+        ):
+            yield self.make_request(lat + d1, lon + d2, sub_radius, source=f"{source}-sub-{quadrant}")
 
     async def start(self):
         radius_m = RADIUS_KM * 1000
