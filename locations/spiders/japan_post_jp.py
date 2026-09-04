@@ -1,4 +1,5 @@
 import csv
+import math
 from io import StringIO
 from urllib.parse import urlencode
 
@@ -18,7 +19,7 @@ MAP_ID = "search"
 class JapanPostJPSpider(Spider):
     name = "japan_post_jp"
 
-    def make_request(self, lat, lon, radius, offset=1, count=900, tempo_count=0, post_count=0):
+    def make_request(self, lat, lon, radius, offset=1, count=900, tempo_count=0, post_count=0, source=""):
         params = {
             "cid": MAP_ID,
             "postcid": "searchPO",
@@ -54,17 +55,18 @@ class JapanPostJPSpider(Spider):
                 "count": count,
                 "tempo_count": tempo_count,
                 "post_count": post_count,
+                "source": source,
             },
         )
 
     async def start(self):
         radius_m = RADIUS_KM * 1000
         for lat, lon in country_iseadgg_centroids("JP", RADIUS_KM):
-            yield self.make_request(lat, lon, radius_m)
+            yield self.make_request(lat, lon, radius_m, source="grid-24")
         for city in city_locations("JP", 200000):
-            yield self.make_request(city["latitude"], city["longitude"], 5500)
+            yield self.make_request(city["latitude"], city["longitude"], 5500, source="city-5.5")
 
-    def parse(self, response, lat, lon, radius, offset, count=900, tempo_count=0, post_count=0):
+    def parse(self, response, lat, lon, radius, offset, count=900, tempo_count=0, post_count=0, source=""):
         # response is an EUC-encoded JS file that looks like
         #   ZdcEmapHttpResult[1] = '...';
         # where the string body is a TSV
@@ -83,14 +85,19 @@ class JapanPostJPSpider(Spider):
 
         page = (offset - 1) // count + 1
         self.logger.info(
-            f"Query (lat={lat}, lon={lon}, page={page}, offset={offset}, rec={rec_count}, hit={hit_count}, tempo={tempo_total}, post={post_total})"
+            f"Query (source={source}, lat={lat}, lon={lon}, radius={radius}, page={page}, offset={offset}, rec={rec_count}, hit={hit_count}, tempo={tempo_total}, post={post_total})"
         )
         if tempo_total >= MAX_ITEMS or post_total >= MAX_ITEMS:
-            self.logger.warning("Maximum number of items returned in one query, consider lowering the radius")
+            self.logger.warning(
+                f"Maximum number of items returned in one query, consider lowering the radius  (source={source})"
+            )
+            if source == "city-5.5":
+                yield from self._subdivide(lat, lon, radius, source)
+            return
 
         if offset + rec_count < hit_count:
             yield self.make_request(
-                lat, lon, radius, offset + rec_count, tempo_count=tempo_total, post_count=post_total
+                lat, lon, radius, offset + rec_count, tempo_count=tempo_total, post_count=post_total, source=source
             )
 
         for row in rows:
