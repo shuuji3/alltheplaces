@@ -1,19 +1,19 @@
-from typing import AsyncIterator, Iterable
+from typing import Iterable
 
-from scrapy import Spider
-from scrapy.http import JsonRequest, Request, Response
+from scrapy.http import Response
 
 from locations.categories import Categories, apply_category
 from locations.hours import DAYS, OpeningHours
 from locations.items import Feature
+from locations.storefinders.location_smart import LocationSmartSpider
 
-API_URL = "https://daisosangyo.locationsmart.org/map/g2?n=90&s=0&w=0&e=179&z=99"
 DETAIL_URL_TEMPLATE = "https://www.daiso-sangyo.co.jp/shop/detail/{shop_id}"
 
 
-class DaisoSangyoJPSpider(Spider):
+class DaisoSangyoJPSpider(LocationSmartSpider):
     name = "daiso_sangyo_jp"
     allowed_domains = ["daisosangyo.locationsmart.org", "www.daiso-sangyo.co.jp"]
+    api_subdomain = "daisosangyo"
 
     # brand_id -> (brand name, wikidata id). CouCou has no wikidata item.
     BRANDS = {
@@ -32,36 +32,27 @@ class DaisoSangyoJPSpider(Spider):
         "coucou": "CouCou ",
     }
 
-    async def start(self) -> AsyncIterator[JsonRequest]:
-        yield JsonRequest(url=API_URL)
-
-    def parse(self, response: Response) -> Iterable[Request]:
-        for shop in response.json()["shops"]:
-            yield Request(
-                url=DETAIL_URL_TEMPLATE.format(shop_id=shop["id"]), callback=self.parse_store, cb_kwargs={"shop": shop}
-            )
-
-    def parse_store(self, response: Response, shop: dict) -> Feature:
-        item = Feature()
-        item["ref"] = shop["id"]
-        item["branch"] = shop["name"].removeprefix(self.BRAND_PREFIXES[shop["brand_id"]])
-        item["lat"] = shop["lat"]
-        item["lon"] = shop["lon"]
-        item["website"] = DETAIL_URL_TEMPLATE.format(shop_id=shop["id"])
-
-        address = "".join(response.xpath('//dt[text()="住所"]/following-sibling::dd[1]//text()').getall()).strip()
-        if address:
-            item["addr_full"] = address
-
-        brand_name, wikidata = self.BRANDS[shop["brand_id"]]
+    def post_process_item(self, item: Feature, response: Response, source_feature: dict) -> Iterable[Feature]:
+        brand_name, wikidata = self.BRANDS[source_feature["brand_id"]]
         item["brand"] = brand_name
         if wikidata:
             item["brand_wikidata"] = wikidata
-        if shop["brand_id"] != "daiso":
-            # daiso is in NSI which supplies its name
+        if source_feature["brand_id"] != "daiso":
+            # only daiso is in NSI which supplies its name
             item["name"] = brand_name
+        else:
+            item.pop("name", None)
 
-        item["opening_hours"] = self.parse_hours(shop["hours"])
+        item["branch"] = source_feature["name"].removeprefix(self.BRAND_PREFIXES[source_feature["brand_id"]])
+        item["website"] = DETAIL_URL_TEMPLATE.format(shop_id=source_feature["id"])
+        item["opening_hours"] = self.parse_hours(source_feature["hours"])
+
+        yield item
+
+    def parse_detail_page(self, response: Response, item: Feature, source_feature: dict) -> Iterable[Feature]:
+        address = "".join(response.xpath('//dt[text()="住所"]/following-sibling::dd[1]//text()').getall()).strip()
+        if address:
+            item["addr_full"] = address
 
         apply_category(Categories.SHOP_VARIETY_STORE, item)
 

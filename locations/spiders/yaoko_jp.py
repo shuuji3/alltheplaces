@@ -1,21 +1,22 @@
 import re
 import unicodedata
+from typing import Iterable
 
-from scrapy import Spider
 from scrapy.http import Request, Response
 
 from locations.categories import Categories, apply_category
 from locations.hours import DAYS, OpeningHours
 from locations.items import Feature
+from locations.storefinders.location_smart import LocationSmartSpider
 
 
-class YaokoJPSpider(Spider):
+class YaokoJPSpider(LocationSmartSpider):
     """Extract Yaoko (JP) store details from the official main website.
 
     Coords are not present on the main site, so they need to be fetched from
-    store-locator API, and it builds a ``branch -> (lat, lon)`` map.
-    Then, the main site's store list is crawled and each store is filled with
-    coordinates by matching branch name if any.
+    the LocationSmart store-locator API, and it builds a ``branch -> (lat, lon)``
+    map. Then, the main site's store list is crawled and each store is filled
+    with coordinates by matching branch name if any.
 
     The API does not cover every main-site store: stores that only publish
     employee (社員) postings have no coords in any source, so those are left
@@ -27,20 +28,24 @@ class YaokoJPSpider(Spider):
         "brand": "ヤオコー",
         "brand_wikidata": "Q11344967",
     }
-
+    api_subdomain = "job01"
+    api_map_id = "yaoko"
     store_list_url = "https://www.yaoko-net.com/store/"
-    start_urls = ["https://job01.locationsmart.org/map/g2?n=90&s=0&w=0&e=179&z=99&map_id=yaoko"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.branch_to_coords_map: dict[str, tuple[float, float]] = {}
 
     def parse(self, response: Response):
-        for shop in response.json()["shops"]:
-            branch = re.sub(r"\s*ヤオコー\s*", "", shop["name"])
-            key = self.branch_key(branch)
-            self.branch_to_coords_map[key] = (float(shop["lat"]), float(shop["lon"]))
+        yield from super().parse(response)
         yield Request(self.store_list_url, callback=self.parse_store_list)
+
+    def parse_shop(self, response: Response, shop: dict) -> Iterable[Feature]:
+        """Build the branch -> coords map from each shop; no item is yielded."""
+        branch = re.sub(r"\s*ヤオコー\s*", "", shop["name"])
+        key = self.branch_key(branch)
+        self.branch_to_coords_map[key] = (float(shop["lat"]), float(shop["lon"]))
+        yield from ()
 
     def parse_store_list(self, response: Response):
         seen: set[str] = set()
