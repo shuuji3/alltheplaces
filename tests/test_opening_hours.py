@@ -18,6 +18,7 @@ from locations.hours import (
     NAMED_TIMES_IT,
     NAMED_TIMES_RU,
     OpeningHours,
+    _normalise_hour_over_24,
     day_range,
     sanitise_day,
 )
@@ -165,6 +166,32 @@ def test_over_midnight():
     assert (
         o.as_opening_hours() == "Mo 00:00-03:00,07:00-24:00; Tu-Sa 00:00-02:00,07:00-24:00; Su 00:00-02:00,05:00-24:00"
     )
+
+
+def test_over_24_close_hour():
+    o = OpeningHours()
+    o.add_range("Mo", "09:00", "25:00")
+    assert o.as_opening_hours() == "Mo 09:00-24:00; Tu 00:00-01:00"
+
+
+def test_over_24_open_next_day():
+    o = OpeningHours()
+    o.add_range("Mo", "25:00", "27:00")
+    assert o.as_opening_hours() == "Tu 01:00-03:00"
+
+
+def test_over_24_open_close_under_24():
+    o = OpeningHours()
+    o.add_range("Mo", "25:00", "6:00")
+    assert o.as_opening_hours() == "Tu 01:00-06:00"
+
+
+def test_normalise_hour_over_24_without_separator():
+    assert _normalise_hour_over_24("25") == ("25", False)
+
+
+def test_normalise_hour_over_24_non_numeric_hour():
+    assert _normalise_hour_over_24("ab:00") == ("ab:00", False)
 
 
 def test_till_midnight():
